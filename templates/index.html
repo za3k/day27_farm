@@ -1,0 +1,37 @@
+{% extends 'base2.html' %}
+
+{% block header %}
+    <h3>{% block title %}{{ project_name }}{% endblock %}</h3>
+    <p>{{ description }}. {{ instructions | safe }}</p>
+    <script src="{{ url_for('static', filename='js/d3.js') }}"></script>
+    <script src="{{ url_for('static', filename='index.js') }}"></script>
+{% endblock %}
+
+{% block content %}
+<div class="error"></div>
+<div class="game-container">
+<div>
+    <svg class="minigame" id="game"></svg>
+</div>
+<div class="master-controls">
+    <div class="button"><input type="submit" class="btn tick" value="Step" /></div>
+    <div class="button"><input type="submit" class="btn run" value="Run" /></div>
+    <div class="button"><input type="submit" class="btn pause" value="Pause" /></div>
+    <div class="button"><input type="submit" class="btn restart" value="Restart" /></div>
+</div>
+</div>
+<div class="slots">
+    {% for i in range(1) %}
+    <div class="slot">
+        <span class="title">Save Slot {{i}}</span>
+        <div class="controls hflex">
+            <div class="button"><input type="submit" class="btn save" slot="{{i}}" value="Save {{i}}" /></div>
+            <div class="button"><input type="submit" class="btn load" slot="{{i}}" value="Load {{i}}" /></div>
+            <div class="button"><input type="submit" class="btn clear" slot="{{i}}" value="Clear {{i}}" /></div>
+        </div>
+        <svg class="preview minigame" slot="{{i}}"></svg>
+    </div>
+    {% endfor %}
+</div>
+<hr/>
+{% endblock %}
