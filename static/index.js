@@ -26,6 +26,44 @@ class Rng {
 }
 
 // Snake
+class GameKeys {
+    bindings = {
+        // WASD
+        65: "left", 87: "up", 68: "right", 83: "down",
+        // Arrow keys
+        37: "left", 38: "up", 39: "right", 40: "down", 
+        //90: "z", 88: "x", 67: "c",
+    }
+    pressed = {} // Return if a key was pressed ANYWHERE within a tick, to deal with slow ticks during testing
+    down = {}
+    constructor(element = document) {
+        document.addEventListener("keydown", (ev) => {
+            //debug(ev.keyCode + " " + this.bindings[ev.keyCode]);
+            this.pressed[event.keyCode] = true;
+            this.down[event.keyCode] = true;
+        })
+        document.addEventListener("keyup", (ev) => {
+            this.down[event.keyCode] = false;
+        })
+    }
+    keys() {
+        const output = {}
+        for (const [code, name] of Object.entries(this.bindings))
+            if (this.pressed[code]) output[name] = true;
+
+        this.pressed = {...this.down}; // Clear old pressed keys
+        
+        return output;
+    }
+    oneKey() {
+        const keys = this.keys();
+        for (let key in keys) {
+            if (keys[key]) return key;
+        }
+        return "nothing";
+    }
+}
+
 class Game {
     static startState = {
         boardSize: [10,10],
@@ -37,8 +75,8 @@ class Game {
         snakeAlive: true,
         score: 0
     }
-    static lost(game) {
-        return !game.snakeAlive;
+    static lost(state) {
+        return !state.snakeAlive;
     }
     static snakeColor(rng) {
         return `rgb(${rng.randFloat(0,150)}, ${rng.randFloat(150,255)}, ${rng.randFloat(0,150)})`
@@ -53,20 +91,21 @@ class Game {
         return Game.clone(Game.startState);
         // Snake
     }
-    static tick(state, rng, keys) {
+    static tick(state, rng, key) {
         // state, rng -> state
-		keys = {left: false, right: false, down: false, up: false, z: false, x: false, c: false, ...keys};
         if (!state.snakeAlive) return state;
         const s = Game.clone(state);
 
-        const is = (group, tile) => group.some(e => (e[0] == tile[0] && e[1] == newTile[1]));
-        const find = (group, tile) => group.findIndex(e => e[0] == tile[0] && e[1] == newTile[1]);
+        const same = (t1, t2) => (t1[0]==t2[0] && t1[1]==t2[1]);
+        const is = (group, tile) => group.some(e => same(e, tile));
+        const find = (group, tile) => group.findIndex(e => same(e, tile));
         const isSnake = tile => is(s.snake, tile)
         const isFruit = tile => is(s.fruits, tile)
         const findFruit = tile => find(s.fruits, tile)
         const inBounds = tile => newTile[0] >= 0 && newTile[0] < s.boardSize[0] && newTile[1] >= 0 && newTile[1] < s.boardSize[1];
         const randomTile = () => [rng.randInt(0, s.boardSize[0]-1), rng.randInt(0, s.boardSize[1]-1)];
         const oppositeDir = (d1, d2) => d1[0]==-d2[0] && d1[1]==-d2[1];
+        const snakeTail = s.snake[0];
         const snakeHead = s.snake[s.snake.length-1];
         const move = (t, d) => [t[0]+d[0], t[1]+d[1]];
         function addFruit() {
@@ -82,20 +121,19 @@ class Game {
         for (let i=0; i<s.fruits.length; i++) s.fruitColors[i] = Game.fruitColor(rng);
 
         // Simulate a random keypress
-        //const key = ["left", "right", "down", "up"]
-        const key = rng.weighted([ 
-            [1, [-1, 0]],
-            [1, [1, 0]],
-            [1, [0, -1]],
-            [1, [0, 1]],
-            [6, s.snakeDir], // 80% chance to go the same way
-        ])
-        // Move
-        if (!oppositeDir(key, s.snakeDir)) s.snakeDir = key;
+        const input = {
+            "left": [-1, 0],
+            "right": [1, 0],
+            "up": [0, -1],
+            "down": [0, 1],
+            "nothing": s.snakeDir
+        }[key];
+        if (!input) debugger;
+        if (!oppositeDir(input, s.snakeDir)) s.snakeDir = input;
         const newTile = move(snakeHead, s.snakeDir);
 
         // Evaluate the new square
-        if (isSnake(newTile) || !inBounds(newTile)) {
+        if ((isSnake(newTile) && !same(newTile,snakeTail)) || !inBounds(newTile)) {
             s.snakeAlive = false;
             return s;
         }
@@ -117,7 +155,6 @@ class Game {
         }
 
         if (rng.flip(0.01)) addFruit(); // Sometimes add a new fruit at random
-
 
         return s;
     }
@@ -201,7 +238,7 @@ class Game {
     }
 }
 
-function error(e) {
+function debug(e) {
     $(".error").text(e || "");
 }
 
@@ -217,55 +254,75 @@ function clear(slot) {
     localStorage.removeItem(slot);
 }
 
-const game = new Game();
 function main() {
+    // Main game loop
     let state;
+    const gameKeys = window.gameKeys = new GameKeys();
     const rng = new Rng();
     let autorun = false; // Run automatically, instead of tick-by-tick
-    let autorestart = false; // Restart on death
-    let autoreload = false; // Reload on death (from slot 1)
-    let autoreloadSlot = 1;
 
+    function display() {
+        Game.render($("#game")[0], state);
+    }
     function restart() {
         state = window.state = Game.newState();
-        Game.render($("#game")[0], state);
+        display();
     }
-    function step() {
-        state = window.state = Game.tick(state, rng);
-        Game.render($("#game")[0], state);
+    function step() { // Execute and display one tick
+        const key = gameKeys.oneKey();
+        state = window.state = Game.tick(state, rng, key);
+        display();
     }
 
-    setInterval(() => { if (autorun) step(); }, 200);
-    restart();
-
-    $(".save").on("click", (ev) => {
-		save(1, state);
-		Game.render($(".preview"), previewState);
-        $(".btn").toggleClass("full", true);
-    });
-    $(".load").on("click", (ev) => {
-		state = window.state = load(1);
-		Game.render($("#game")[0], state);
-    });
-    $(".clear").each((i, e) => {
-		clear(1);
-		$(".preview").empty();
-        $(".btn").toggleClass("full", false);
-    });
+    // UI buttons
     $(".btn").toggleClass("full", !!load(1));
 
-    $(".tick").on("click", step);
-    $(".restart").on("click", restart);
-    $(".run").on("click", () => {
-        autorun = true;
-        $(".run").hide();
-        $(".pause").show();
-    });
-    $(".pause").on("click", () => {
-        autorun = false;
-        $(".run").show();
-        $(".pause").hide();
-    });
+    const action = {
+        restart, step,
+        run: function() {
+            autorun = true;
+            $(".run").hide();
+            $(".pause").show();
+        },
+        pause: function() {
+            autorun = false;
+            $(".run").show();
+            $(".pause").hide();
+        },
+        clear: function() {
+            clear(1);
+            $(".preview").empty();
+            $(".btn").toggleClass("full", false);
+        },
+        save: function() {
+            save(1, state);
+            Game.render($(".preview"), previewState);
+            $(".btn").toggleClass("full", true);
+        },
+        load: function() {
+            state = window.state = load(1);
+            display();
+        },
+
+    }
+    $(".save").on("click", action.save);
+    $(".load").on("click", action.load);
+    $(".clear").on("click", action.clear);
+    $(".run").on("click", action.run);
+    $(".pause").on("click", action.pause);
+    $(".step").on("click", action.step);
+    $(".restart").on("click", action.restart);
+
+    $(document).on("keydown", (ev) => {
+        if (ev.keyCode == 82) action.restart(); // R = restart
+    })
+
+    // Main loop
+    setInterval(() => {
+        if (!autorun && gameKeys.oneKey() != "nothing") action.run(); // Automatically start on user input
+        if (autorun) step(); 
+    }, 200);
+    restart();
 }
 
 (function() {
