@@ -1,11 +1,11 @@
 [Unit]
-Description=gunicorn3 for hackaday-27-walk
+Description=gunicorn3 for hackaday-27-farm
 After=network.target
 
 [Service]
 Type=simple
-WorkingDirectory=/hackaday/day27_walk
-ExecStart=/bin/gunicorn3 -e SCRIPT_NAME=/hackaday/walk --bind 0.0.0.0:8027 app:app
+WorkingDirectory=/hackaday/day27_farm
+ExecStart=/bin/gunicorn3 -e SCRIPT_NAME=/hackaday/farm --bind 0.0.0.0:8027 app:app
 
 [Install]
 WantedBy=multi-user.target

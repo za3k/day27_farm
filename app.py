@@ -9,11 +9,11 @@ from base import app,load_info,ajax,DBDict,DBList,random_id,hash_id,full_url_for
 
 # -- Info for every Hack-A-Day project --
 load_info({
-    "project_name": "Hack-A-Walk",
-    "source_url": "https://github.com/za3k/day27_walk",
-    "subdir": "/hackaday/walk",
+    "project_name": "Hack-A-Farm",
+    "source_url": "https://github.com/za3k/day27_farm",
+    "subdir": "/hackaday/farm",
     "description": "A farming game",
-    "instructions": "Walk with the keyboard. WASD or Up/Down/Left/Right.",
+    "instructions": "(in templates/index.html)",
     "login": False,
     "fullscreen": False,
 })
