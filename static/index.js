@@ -1,5 +1,7 @@
 'use strict';
 
+const SLOT="farm1";
+
 function debug(e) {
     $(".error").text(e || "");
 }
@@ -388,8 +390,8 @@ function main() {
     }
 
     // UI buttons
-    $(".btn").toggleClass("full", !!load(1));
-    if (!!load(1)) Game.render($(".preview")[0], load(1));
+    $(".btn").toggleClass("full", !!load(SLOT));
+    if (!!load(SLOT)) Game.render($(".preview")[0], load(SLOT));
 
     const action = {
         restart, step,
@@ -404,7 +406,7 @@ function main() {
             $(".pause").hide();
         },
         clear: function() {
-            localStorage.removeItem(1);
+            localStorage.removeItem(SLOT);
             $(".preview").empty();
             $(".btn").toggleClass("full", false);
         },
@@ -414,7 +416,7 @@ function main() {
             $(".btn").toggleClass("full", true);
         },
         load: function() {
-            state = window.state = load(1);
+            state = window.state = load(SLOT);
             display();
         },
 
