@@ -12,7 +12,7 @@ load_info({
     "project_name": "Hack-A-Walk",
     "source_url": "https://github.com/za3k/day27_walk",
     "subdir": "/hackaday/walk",
-    "description": "A very tiny minigame.",
+    "description": "A farming game",
     "instructions": "Walk with the keyboard. WASD or Up/Down/Left/Right.",
     "login": False,
     "fullscreen": False,

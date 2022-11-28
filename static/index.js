@@ -1,19 +1,15 @@
 'use strict';
 
+function debug(e) {
+    $(".error").text(e || "");
+}
+
+function n(i, x) { return Array.from(Array(i), () => x); }
 class Rng {
-    Random() {
-        return Math.random();
-    }
-    flip(p) {
-        p ||= 0.5;
-        return this.Random() < p;
-    }
-    randInt(min, max) { // inclusive
-        return Math.floor(this.randFloat(min, max+1));
-    }
-    randFloat(min, max) {
-        return this.Random()*(max-min)+min;
-    }
+    Random() { return Math.random(); }
+    flip(p) { return this.Random() < (p||0.5); }
+    randInt(min, max) { return Math.floor(this.randFloat(min, max+1)); } // Inclusive
+    randFloat(min, max) { return this.Random()*(max-min)+min; }
     weighted(a) {
         let sum = 0;
         for (let i=0; i<a.length; i++) sum += a[i][0];
@@ -28,133 +24,258 @@ class Rng {
 // Snake
 class GameKeys {
     bindings = {
-        // WASD
-        65: "left", 87: "up", 68: "right", 83: "down",
-        // Arrow keys
-        37: "left", 38: "up", 39: "right", 40: "down", 
-        //90: "z", 88: "x", 67: "c",
+        65: "left", 87: "up", 68: "right", 83: "down", // WASD
+        37: "left", 38: "up", 39: "right", 40: "down", // Arrow keys
+        90: "z", 88: "x", 67: "c", // Action keys
     }
-    pressed = {} // Return if a key was pressed ANYWHERE within a tick, to deal with slow ticks during testing
+    pressed = {} // was pressed this tick
     down = {}
     constructor(element = document) {
-        document.addEventListener("keydown", (ev) => {
-            //debug(ev.keyCode + " " + this.bindings[ev.keyCode]);
-            this.pressed[event.keyCode] = true;
-            this.down[event.keyCode] = true;
-        })
-        document.addEventListener("keyup", (ev) => {
-            this.down[event.keyCode] = false;
-        })
+        document.addEventListener("keydown", e => {
+            this.pressed[e.keyCode] = this.down[e.keyCode] = true
+            if([32, 37, 38, 39, 40].indexOf(e.keyCode) > -1) e.preventDefault(); // Don't scroll
+        });
+        document.addEventListener("keyup", e => this.down[e.keyCode] = false);
     }
     keys() {
         const output = {}
         for (const [code, name] of Object.entries(this.bindings))
             if (this.pressed[code]) output[name] = true;
-
-        this.pressed = {...this.down}; // Clear old pressed keys
-        
+        //this.pressed = {...this.down}; // Clear old pressed keys, but allow holding
+        this.pressed = {}; // Don't allow holding.
         return output;
     }
     oneKey() {
         const keys = this.keys();
-        for (let key in keys) {
+        for (let key in keys)
             if (keys[key]) return key;
-        }
         return "nothing";
     }
 }
 
+class Tile { // Static, non-animated tile
+    constructor(image, pixel, xindex, yindex) {
+        this.offset = { x: xindex*pixel, y: yindex*pixel };
+        this.size = { width: pixel, height: pixel };
+        this.image = image;
+    }
+    get tile() { return this; }
+}
+class AnimatedTile {
+    constructor(tiles) {
+        this.tiles = tiles;
+        this.ticks = 0;
+    }
+    get tile() { // Just make sure to call this once per tick exactly!
+        return this.tiles[this.ticks++ % this.tiles.length];
+    }
+}
+
+const Farm = document.getElementById("farm");
+
+const TILE = {
+    grass: new Tile(Farm, 16, 1, 1),
+    grassTop: new Tile(Farm, 16, 1, 0),
+    grassTopLeft: new Tile(Farm, 16, 0, 0),
+    grassTopRight: new Tile(Farm, 16, 2, 0),
+    grassBottom: new Tile(Farm, 16, 1, 2),
+    grassBottomLeft: new Tile(Farm, 16, 0, 2),
+    grassBottomRight: new Tile(Farm, 16, 2, 2),
+    grassLeft: new Tile(Farm, 16, 0, 1),
+    grassRight: new Tile(Farm, 16, 2, 1),
+    player_left_standing: new Tile(Farm, 16, 0, 9),
+    player_right_standing: new Tile(Farm, 16, 0, 8),
+    player_left_walking: new AnimatedTile([
+        new Tile(Farm, 16, 0, 9),
+        new Tile(Farm, 16, 1, 9),
+        new Tile(Farm, 16, 2, 9),
+        new Tile(Farm, 16, 3, 9),
+    ]),
+    player_right_walking: new AnimatedTile([
+        new Tile(Farm, 16, 0, 8),
+        new Tile(Farm, 16, 1, 8),
+        new Tile(Farm, 16, 2, 8),
+        new Tile(Farm, 16, 3, 8),
+    ]),
+    X: new Tile(Farm, 16, 0, 3),
+    dirt: new Tile(Farm, 16, 5, 0),
+    potatoSeed: new Tile(Farm, 16, 4, 8),
+    tomatoSeed: new Tile(Farm, 16, 4, 9),
+    potato: new Tile(Farm, 16, 11, 8),
+    tomato: new Tile(Farm, 16, 11, 9),
+}
+for (let r=0; r<5; r++)
+    for (let c=0; c<4; c++)
+        TILE[`shed${r}${c}`] = new Tile(Farm, 16, 0+c, 3+r);
+for (let s=0; s<6; s++) TILE[`potatoGrowth${s}`] = new Tile(Farm, 16, 5+s, 8);
+for (let s=0; s<6; s++) TILE[`tomatoGrowth${s}`] = new Tile(Farm, 16, 5+s, 9);
+
+class Item {
+    constructor(tile) {
+        this.tile = tile
+    }
+    isAfter(ticks, earlyTile) {
+        const early = new Item(earlyTile);
+        early.ticksRemaining = ticks;
+        early.replacement = this;
+        return early;
+    }
+}
+
 class Game {
-    static startState = {
-        boardSize: [10,10],
-        fruits: [[8, 8]],
-        fruitColors: ["rgb(255,0,0)"],
-        snake: [[5, 5]], // From tail to head
-        snakeColors: ["rgb(50,200,50)"], // From head to tail
-        snakeDir: [1, 0],
-        snakeAlive: true,
-        score: 0
-    }
-    static lost(state) {
-        return !state.snakeAlive;
-    }
-    static snakeColor(rng) {
-        return `rgb(${rng.randFloat(0,150)}, ${rng.randFloat(150,255)}, ${rng.randFloat(0,150)})`
-    }
-    static fruitColor(rng) {
-        return `rgb(${rng.randFloat(100,255)}, ${rng.randFloat(0,100)}, ${rng.randFloat(0,100)})`
+    static potato = new Item("potatoGrowth5")
+        .isAfter(10, "potatoGrowth4")
+        .isAfter(10, "potatoGrowth3")
+        .isAfter(10, "potatoGrowth2")
+        .isAfter(10, "potatoGrowth1")
+        .isAfter(10, "potatoGrowth0");
+    static tomato = new Item("tomatoGrowth5")
+        .isAfter(10, "tomatoGrowth4")
+        .isAfter(10, "tomatoGrowth3")
+        .isAfter(10, "tomatoGrowth2")
+        .isAfter(10, "tomatoGrowth1")
+        .isAfter(10, "tomatoGrowth0");
+    static initState = { // [y, x] or [r, c] where x=0 is the left, and y=0 is the top
+        boardSize: [11,10],
+        // Background you walk over (Layer 0). Immutable.
+        landscape: [
+            // What the hell javascript, why is ["the"] + ["dog"] equal to "thedog".
+            ["grassTopLeft", ...n(8, "grassTop"), "grassTopRight"], 
+            ...n(8, ["grassLeft", ... n(8, "grass"), "grassRight"]), // These are copies of the same thing, but it's immutable so it's ok
+            ["grassBottomLeft", ...n(8, "grassBottom"), "grassBottomRight"],
+            n(10, null)
+        ],
+        // Foreground you can't interact with or walk on (Layer 1). Immutable.
+        buildings: [
+            ["", "shed00", "shed01", "shed02", "shed03", ...n(5, "")],
+            ["", "shed10", "shed11", "shed12", "shed13", ...n(5, "")],
+            ["", "shed20", "shed21", "shed22", "shed23", ...n(5, "")],
+            ["", "shed30", "shed31", "shed32", "shed33", ...n(5, "")],
+            ["", "shed40", "shed41", "shed42", "shed43", ...n(5, "")],
+            ...n(5, n(10, "")),
+            n(10, "X")
+        ],
+        // Objects that exist and you can interact with (Layer 2). Mutable.
+        items: Array.from(Array(11), ()=>new Array(10)), 
+        // Player. (Layer 3). Mutable.
+        playerTile: "player_right_standing",
+        // Status bar at the bottom. (Layer 4) Immutable.
+        statusBar: ["potato", "", "", "", "tomato", "", "", "", "", ""],//dirt"],
+        // Inventory at the bottom. (Layer 5). Mutable.
+        inventoryTile: "potatoSeed",
+
+        player: [5,5], // Player position (Layer 3)
+        playerDir: [1,0], // Player facing right
+        score: {
+            "potato": 0,
+            "tomato": 0,
+        },
+        playerFacing: "right",
+        playerWalking: 0,
+        inventory: ["potatoSeed", "tomatoSeed", "X"],
+        inventorySelected: 0,
     }
     static clone(state) {
-        return JSON.parse(JSON.stringify(state))
+        const x = JSON.parse(JSON.stringify(state))
+        if (!x) debugger;
+        //if (!state.landscape[0][0]) debugger;
+        return x;
+    }
+    static layers(state) {
+        // Layer 0: Background
+        // Layer 1: Buildings
+        // Layer 2: Items
+        // Layer 3: Player
+        // Layer 4: Status Bar (+ inventory background)
+        // Layer 5: Inventory
+        const emptyLayer = ()=>Array.from(Array(state.boardSize[0]), ()=>new Array(state.boardSize[1]));
+        const layers = Array.from(Array(6), emptyLayer);
+        for (let r=0; r<state.boardSize[0]; r++) {
+            for (let c=0; c<state.boardSize[1]; c++) {
+                layers[0][r][c] = TILE[state.landscape[r][c]];
+                layers[1][r][c] = TILE[state.buildings[r][c]];
+                const item = state.items[r][c];
+                if (item) layers[2][r][c] = TILE[item.tile];
+            }
+        }
+        layers[3][state.player[0]][state.player[1]] = TILE[state.playerTile];
+        for (let c=0; c<state.boardSize[1]; c++) {
+            layers[4][state.boardSize[0]-1][c] = TILE[state.statusBar[c]];
+        }
+        layers[5][state.boardSize[0]-1][state.boardSize[1]-1] = TILE[state.inventoryTile];
+        return layers;
     }
     static newState(rng) {
-        return Game.clone(Game.startState);
-        // Snake
+        return Game.clone(Game.initState);
     }
     static tick(state, rng, key) {
         // state, rng -> state
-        if (!state.snakeAlive) return state;
         const s = Game.clone(state);
 
-        const same = (t1, t2) => (t1[0]==t2[0] && t1[1]==t2[1]);
-        const is = (group, tile) => group.some(e => same(e, tile));
-        const find = (group, tile) => group.findIndex(e => same(e, tile));
-        const isSnake = tile => is(s.snake, tile)
-        const isFruit = tile => is(s.fruits, tile)
-        const findFruit = tile => find(s.fruits, tile)
-        const inBounds = tile => newTile[0] >= 0 && newTile[0] < s.boardSize[0] && newTile[1] >= 0 && newTile[1] < s.boardSize[1];
-        const randomTile = () => [rng.randInt(0, s.boardSize[0]-1), rng.randInt(0, s.boardSize[1]-1)];
-        const oppositeDir = (d1, d2) => d1[0]==-d2[0] && d1[1]==-d2[1];
-        const snakeTail = s.snake[0];
-        const snakeHead = s.snake[s.snake.length-1];
+        // Helper functions
+        const between = (l, x, m) => (l <= x) && (x < m);
+        const inBounds = (t) => between(0, t[0], s.boardSize[0]) && between(0, t[1], s.boardSize[1]);
         const move = (t, d) => [t[0]+d[0], t[1]+d[1]];
-        function addFruit() {
-            let tile;
-            do {
-                tile = randomTile()
-            } while (isSnake(tile) || isFruit(tile));
-            s.fruits.push(tile);
-            s.fruitColors.push(Game.fruitColor(rng));
+        const same = (t1, t2) => t1[0]==t2[0] && t1[1]==t2[1];
+        const place = (t, i) => s.items[t[0]][t[1]] = i;
+        const remove = () => place(targetTile, null)
+        const get = (t) => s.items[t[0]][t[1]]
+        const eachTile = function(f) {
+            for (let r=0; r<s.boardSize[0]; r++)
+                for (let c=0; c<s.boardSize[1]; c++) f([r,c]);
         }
 
-        // Randomize fruit colors every tick
-        for (let i=0; i<s.fruits.length; i++) s.fruitColors[i] = Game.fruitColor(rng);
 
-        // Simulate a random keypress
-        const input = {
-            "left": [-1, 0],
-            "right": [1, 0],
-            "up": [0, -1],
-            "down": [0, 1],
-            "nothing": s.snakeDir
-        }[key];
-        if (!input) debugger;
-        if (!oppositeDir(input, s.snakeDir)) s.snakeDir = input;
-        const newTile = move(snakeHead, s.snakeDir);
-
-        // Evaluate the new square
-        if ((isSnake(newTile) && !same(newTile,snakeTail)) || !inBounds(newTile)) {
-            s.snakeAlive = false;
-            return s;
-        }
-        s.score++;
-
-        if (isFruit(newTile)) {
-            const fruitIndex = findFruit(newTile);
-            s.fruits.splice(fruitIndex,1);
-            s.fruitColors.splice(fruitIndex,1);
-            s.score += 100;
-            s.snake.push(newTile);
-            s.snakeColors.push(Game.snakeColor(rng));
-            
-            // Add new random fruit
-            addFruit();
-        } else {
-            s.snake.shift();
-            s.snake.push(newTile);
+        function walkable([i,j]) {
+            if (state.buildings[i][j]) return false;
+            const item = state.items[i][j];
+            if (item && !item.walkable) return false;
+            return true;
         }
 
-        if (rng.flip(0.01)) addFruit(); // Sometimes add a new fruit at random
+        // Keyboard input
+        const inputDir = { "left": [0, -1], "right": [0, 1], "up": [-1, 0], "down": [1, 0] }[key];
+
+        // Rotate
+        s.playerDir = inputDir || s.playerDir;
+        s.playerFacing = { "left": "left", "right": "right" }[key] || s.playerFacing;
+        // Move
+        const dir = inputDir || [0,0];
+        const newTile = move(state.player, dir);
+        if (inBounds(newTile) && walkable(newTile) && !same(newTile, s.player)) {
+            s.player = newTile;
+            s.walking = 5; // Walk a few ticks, then stop walking
+        } else if (s.walking) s.walking--;
+        s.playerTile = `player_${s.playerFacing}${s.walking ? "_walking" : "_standing"}`;
+
+        // See what we're looking at now
+        const targetTile = move(state.player, s.playerDir);
+        const targetItem = inBounds(targetTile) ? get(targetTile) : null;
+        let item = s.inventory[s.inventorySelected];
+        if (key=="z" && targetItem) { // Pick up
+            const action = {
+                "potatoGrowth5": () => { s.score.potato++; remove() },
+                "tomatoGrowth5": () => { s.score.tomato++; remove() },
+            }[targetItem.tile]
+            if (action) action();
+        } else if (key=="x") { // Use
+            if (item == "potatoSeed" && !targetItem) place(targetTile, Game.clone(Game.potato));
+            if (item == "tomatoSeed" && !targetItem) place(targetTile, Game.clone(Game.tomato));
+        } else if (key=="c") { // Cycle inventory
+            s.inventorySelected = (s.inventorySelected + 1) % s.inventory.length;
+            item = s.inventory[s.inventorySelected];
+        }
+        s.inventoryTile = item;
+
+        // Grow crops
+        eachTile(t => {
+            const tickItem = get(t);
+            if (!tickItem) return;
+            if (tickItem.ticksRemaining > 0) {
+                tickItem.ticksRemaining--;
+                if (tickItem.ticksRemaining == 0) place(t, tickItem.replacement);
+            }
+        })
 
         return s;
     }
@@ -162,22 +283,28 @@ class Game {
         // div, state -> none(
         const height = $(div).height(), width = $(div).width();
         div = d3.select(div)
+        div.style("position", "relative");
 
-        const size = 10;
-        const gap = 1;
-        let bits = [];
-        for (let i=0; i<state.snake.length; i++) { // Head to tail
-            const [x,y]=state.snake[state.snake.length-i-1], color=state.snakeColors[i];
-            bits.push([x,y,color]);
+        const maxTileHeight = (height-20)/state.boardSize[0];
+        const maxTileWidth = width/state.boardSize[1];
+        const maxTileSize = Math.min(maxTileWidth, maxTileHeight);
+        const size = Math.pow(2, Math.floor(Math.log(maxTileSize)/Math.log(2))); // 16-pixel, 32-pixel, or 64-pixel? Scale smoothly.
+        const gap = { 64: 1, 32: 1, 16: 0 }[size] || 0;
+        
+        const layers = Game.layers(state);
+        let tiles = [];
+        for (let layer = 0; layer<layers.length; layer++) { // Order 0..3 is important
+            for (let r=0; r<state.boardSize[0]; r++) {
+                for (let c=0; c<state.boardSize[0]; c++) {
+                    if (!layers[layer][r][c]) continue; // Don't draw blank tiles
+                    const tile = layers[layer][r][c].tile; // Animate tiles
+                    tiles.push({tile, layer, r, c});
+                }
+            }
         }
-        for (let i=0; i<state.fruits.length; i++) {
-            const [x,y]=state.fruits[i], color=state.fruitColors[i];
-            bits.push([x,y,color]);
-        }
 
-        const gameWidth = size*state.boardSize[0]+gap*(state.boardSize[0]-1);
-        const gameHeight = size*state.boardSize[1]+gap*(state.boardSize[1]-1);
-
+        const gameHeight = size*state.boardSize[0]+gap*(state.boardSize[0]-1);
+        const gameWidth = size*state.boardSize[1]+gap*(state.boardSize[1]-1);
         const margin = {
             top: 20,
             bottom: (height-gameHeight-20),
@@ -185,47 +312,46 @@ class Game {
             right: (width-gameWidth)/2,
         }
 
-        const dot = div.selectAll(".dot").data(bits);
         function makeUpdate(c, t, f) {
             [c.enter().append(t), c].forEach(f);
+            //c.exit().remove();
         }
-        makeUpdate(dot, "rect", function(x) {
-            x.attr("width", size)
-            .attr("class", "dot")
-            .attr("height", size)
-            .attr("x", (d,i) => d[0]*(size+gap)+margin.left)
-            .attr("y", (d,i) => d[1]*(size+gap)+margin.top)
-            .style("fill", (d, i) => d[2]);
-        })
-        dot.exit().remove();
 
-        makeUpdate(div.selectAll(".label").data([null]), "text", (d) => d.attr("class", "label")
-            .attr("x", width/2)
-            .attr("y", margin.top/2)
-            .attr("font", "monospace")
-            .attr("width", width)
-            .attr("text-anchor", "middle")
-            .style("alignment-baseline", "middle")
-            .text("snek")
+        makeUpdate(div.selectAll(".tile").data(tiles), "div", (d) => d.attr("class", "tile")
+            .style("position", "absolute")
+            .style("left", d => `${margin.left + d.c*(size+gap)}px`)
+            .style("top", d => `${margin.top + d.r*(size+gap)}px`)
+            .style("width", d => `${d.tile.size.width}px`)
+            .style("height", d => `${d.tile.size.height}px`)
+            .style("background-image", d => `url(${d.tile.image.src})`)
+            .style("background-position", d=> `top ${-d.tile.offset.y}px left ${-d.tile.offset.x}px`)
+            .style("transform", d=> `scale(${size/d.tile.size.width})`)
+            .style("transform-origin", "top left")
         );
-        makeUpdate(div.selectAll(".score").data([null]), "text", (d) => d.attr("class", "score")
-            .attr("x", width - 20)
-            .attr("y", margin.top+gameHeight+margin.bottom/2+2)
-            .attr("font", "monospace")
-            .attr("width", width)
-            .attr("text-anchor", "end")
-            .style("alignment-baseline", "middle")
-            .text(state.score)
+
+        // Score
+        const scores = [
+            { score: state.score.potato, x: 1, y: state.boardSize[0]-1 },    
+            { score: state.score.tomato, x: 5, y: state.boardSize[0]-1 },    
+        ];
+        makeUpdate(div.selectAll(".score").data(scores), "div", (d) => d.attr("class", "score")
+            .style("color", "black")
+            .style("position", "absolute")
+            .style("top", d=> `${margin.top + (size+gap)*d.y}px`)
+            .style("left", d=> `${margin.left + (size+gap)*d.x}px`)
+            .style("height", `${size}px`)
+            .style("line-height", `${size}px`)
+            .style("text-align", "center")
+            .text(d => `x ${d.score}`)
         );
-        makeUpdate(div.selectAll(".life").data([state.snakeAlive]), "text", d => d.attr("class", "life")
-            .attr("x", 20)
-            .attr("y", margin.top+gameHeight+margin.bottom/2+2)
-            .attr("font", "monospace")
-            .attr("width", width)
-            .attr("text-anchor", "start")
-            .style("alignment-baseline", "middle")
-            .attr("fill", v => v ? "green" : "red")
-            .text(v => v ? "ALIVE" : "DEAD")
+        makeUpdate(div.selectAll(".label").data([null]), "div", (d) => d.attr("class", "label")
+            .style("color", "black")
+            .style("position", "absolute")
+            .style("display", "block")
+            .style("width", "100%")
+            .style("text-align", "center")
+            .style("font-family", "monospace")
+            .text("hack-a-walk")
         );
         div.selectAll(".border").data([null]).enter().append("rect").attr("class", "border")
             .attr("x", margin.left-1)
@@ -238,29 +364,12 @@ class Game {
     }
 }
 
-function debug(e) {
-    $(".error").text(e || "");
-}
-
-function save(slot, state) {
-    localStorage.setItem(slot, JSON.stringify(state));
-}
-
-function load(slot) {
-    const text = localStorage.getItem(slot);
-    if (text) return JSON.parse(text);
-}
-function clear(slot) {
-    localStorage.removeItem(slot);
-}
-
 function main() {
     // Main game loop
     let state;
     const gameKeys = window.gameKeys = new GameKeys();
     const rng = new Rng();
-    let autorun = false; // Run automatically, instead of tick-by-tick
-
+    let autorun = false; // Run automatically, instead of tick-by-tick1
     function display() {
         Game.render($("#game")[0], state);
     }
@@ -273,9 +382,14 @@ function main() {
         state = window.state = Game.tick(state, rng, key);
         display();
     }
+    function load(slot) {
+        const text = localStorage.getItem(slot);
+        if (text) return JSON.parse(text);
+    }
 
     // UI buttons
     $(".btn").toggleClass("full", !!load(1));
+    if (!!load(1)) Game.render($(".preview")[0], load(1));
 
     const action = {
         restart, step,
@@ -290,13 +404,13 @@ function main() {
             $(".pause").hide();
         },
         clear: function() {
-            clear(1);
+            localStorage.removeItem(1);
             $(".preview").empty();
             $(".btn").toggleClass("full", false);
         },
         save: function() {
-            save(1, state);
-            Game.render($(".preview"), previewState);
+            localStorage.setItem(1, JSON.stringify(state));
+            Game.render($(".preview")[0], state);
             $(".btn").toggleClass("full", true);
         },
         load: function() {
@@ -313,15 +427,14 @@ function main() {
     $(".step").on("click", action.step);
     $(".restart").on("click", action.restart);
 
+    let started=false;
     $(document).on("keydown", (ev) => {
         if (ev.keyCode == 82) action.restart(); // R = restart
+        if (!started) action.run(); // Automatically start on user input
     })
 
     // Main loop
-    setInterval(() => {
-        if (!autorun && gameKeys.oneKey() != "nothing") action.run(); // Automatically start on user input
-        if (autorun) step(); 
-    }, 200);
+    setInterval(() => { if (autorun) step() }, 200);
     restart();
 }
 

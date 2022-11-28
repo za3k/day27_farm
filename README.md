@@ -9,3 +9,8 @@ Day 27 is a walkgame. Your only controls are "save" and "restore". This is in pr
 Demo available [here](https://tilde.za3k.com/hackaday/walk).
 
 Source available on [github](https://github.com/za3k/day27_walk).
+
+## Credits
+
+- Farm spritesheet is the [Cozy Farm](https://shubibubi.itch.io/cozy-farm) free spritesheet by [shubibubi](https://shubibubi.itch.io/).
+- Character sprites are Cozy People, also free sprites from shubibubi.
